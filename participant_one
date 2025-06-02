@@ -1,0 +1,320 @@
+import json
+import boto3
+import tempfile
+import traceback
+from src.awslambda.Generic_function import logger, db2_conn_test, s3_get_object, s3_put_object
+import sys
+import os
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+import pandas as pd
+from datetime import datetime
+import smtplib
+import logging
+
+# s3 = boto3.client('s3', region_name='us-east-1')
+
+class CustomException(Exception):
+    pass
+
+
+# DB CONNECTION VARIABLE
+Conn = db2_conn_test()
+
+
+def lambda_handler(event, context):
+    global ackCount, ackhdate
+    logger.info("Entered into file transformation step program participant sequence 1")
+
+    logger.debug("Received event: " + json.dumps(event, indent=2))
+    # if 'Records' in event:
+    #     recordkeepercode = event['Records'][0]
+    #     # cycledate = event['Records'][0]
+    #
+    #     logger.info(".....recordkeeper code....")
+    #     logger.info(recordkeepercode)
+    logger.info("Entered into participant sequence 1  ")
+    bucket_name, file_key, s3 = s3_get_object()
+    s3_indicative_file = file_key + 'RCINDICATIVE.DAT'
+    response = s3.get_object(Bucket=bucket_name, Key=s3_indicative_file)
+    existing_data_s3_indicative_file = response['Body'].read().decode('utf-8')
+
+    print(existing_data_s3_indicative_file)
+
+    try:
+
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
+
+            tmp.write(existing_data_s3_indicative_file)
+            filename = tmp.name
+
+        tmp1 = tempfile.NamedTemporaryFile(mode='w', delete=False)
+        filename1 = tmp1.name
+        # my_list=[]
+        logger.info("....Entered into participant one  processing logic")
+        transaction_cycle_date=pd.read_sql(f"SELECT min(cd.CAL_DT) FROM tpods.CAL_DAY cd WHERE cd.CAL_DT >(SELECT max(tc.CYC_DT) FROM tpods.IF_TRANS_CYC tc WHERE   tc.FILE_TY_CD  = 'T')AND cd.CAL_DAY_TY_CD  = 'B'WITH ur;",Conn)
+        print("transaction table latest date which should match with plan feed given date",transaction_cycle_date.iloc[0][0])
+        table_cycle_date = transaction_cycle_date.iloc[0][0]
+        #print("akshatha",type(table_cycle_date))
+
+        with open(filename, 'r') as ifp:
+
+            # filesize = os.path.getsize(ifp)
+
+            if os.stat(filename).st_size == 0:
+                logger.info("File RCINDICATIVE.DAT is empty cant process to furthur step")
+                email_empty_file()
+                sys.exit(11)
+            elif os.stat(filename).st_size != 0:
+
+                logger.info("file RCINDICATIVE.DAT is not empty continue the process")
+                with open(filename, 'r') as file_read:
+
+                    first_line = file_read.readline()
+                    indicative_feed_date = first_line[25:]
+                    indicative_feed_date = indicative_feed_date.strip()
+                    indicative_feed_given_date = datetime.strptime(indicative_feed_date, '%Y%m%d').date()
+                    indicative_feed_given_date=indicative_feed_given_date.strftime('%Y%m%d')
+                    table_cycle_date=table_cycle_date.strftime('%Y%m%d')
+                    print(table_cycle_date)
+                    print(type(table_cycle_date))
+                    if (indicative_feed_given_date < table_cycle_date) or (indicative_feed_given_date > table_cycle_date):
+                        print(f"The date is which exist in indicative feed is not correct its not matching with transaction cycle ,planfeeddate:{indicative_feed_given_date},tabledate:{table_cycle_date}")
+                        'check with alam do we need in this suitation also need plan.done file need to be create'
+                        email(indicative_feed_given_date, table_cycle_date)
+                        sys.exit(12)
+                    elif indicative_feed_given_date == table_cycle_date:
+                        print("Both table cycle date and indicative feed date is same continue the process")
+            with open(filename1, 'w') as ofp:
+                try:
+                    bufc = ""
+                    buf = ""
+                    buf2 = ""
+                    hdate = ""
+                    rkid = ""
+                    line_count = 0
+                    line_read = 0
+
+                    buf = ifp.readline()
+                    # buf=line
+                    line_read += 1
+                    if buf[:3] != "001":
+                        logger.info("\nHeader (Type 001) is missing - [5]\n")
+
+                        sys.exit(5)
+
+                    hdate = buf[25:33]
+                    ackhdate = buf[25:33]
+                    rkid = buf[3:5]
+
+                    if "\n" in buf:
+                        buf = buf.replace("\n", "")
+                    buf += " " * 30 + "\n"
+                    ofp.write(buf)
+                    # my_list.append(buf)
+                    line_count += 1
+                    # footer_present = False
+                    bufc = ""
+
+                    lines = ifp.readlines()
+                    last_line = lines[-1].strip()
+                    logger.info("Checking on trailer starts with 999 number")
+
+                    try:
+                        if last_line[:3] != '999':
+                            logger.info("footer is not present", buf)
+                            raise CustomException('footer is not present in the file')
+
+                        else:
+                            logger.info("footer is present")
+                            for line in lines:
+                                buf = line
+                                line_read += 1
+                                if buf[:3] == "999":
+                                    ackCount = buf[13:28]
+                                    if bufc:
+                                        if "\n" in bufc:
+                                            bufc = bufc.replace("\n", "")
+                                        BUFSIZ = 1024
+                                        buf2 = " " * BUFSIZ
+                                        # buf2 = " " * bytearray(io.DEFAULT_BUFFER_SIZE)
+                                        buf2 = buf2[:48]
+                                        bufc += buf2
+                                        bufc += rkid
+                                        bufc += hdate
+                                        bufc += "\n"
+                                        ofp.write(bufc)
+                                        bufc = ""
+                                        line_count += 1
+                                    footer_present = True
+                                    line_count += 1
+                                    fc = "{:015d}".format(line_count)
+                                    buf = buf[:13] + fc + buf[28:]
+                                    #ackCount = buf[:13] + fc + buf[28:]
+                                    if "\n" in buf:
+                                        buf = buf.replace("\n", "")
+                                    buf += " " * 30 + "\n"
+                                    ofp.write(buf)
+                                    buf = buf[13:28]
+                                    foot_line_count = int(buf)
+
+                                elif buf[:3] == "101":
+                                    if bufc:
+                                        if "\n" in bufc:
+                                            bufc = bufc.replace("\n", "")
+                                        BUFSIZ = 1024
+                                        buf2 = " " * BUFSIZ
+                                        # buf2 = " " * bytearray(io.DEFAULT_BUFFER_SIZE)
+                                        buf2 = buf2[:48]
+                                        bufc += buf2
+                                        bufc += rkid
+                                        bufc += hdate
+                                        bufc += "\n"
+                                        ofp.write(bufc)
+                                        bufc = ""
+                                        line_count += 1
+                                    bufc = buf
+                                elif buf[:3] == "102":
+                                    if bufc:
+                                        buf2 = buf
+                                        if "\n" in bufc:
+                                            bufc = bufc.replace("\n", "")
+                                        buf2 = buf2[3:]
+                                        buf2 = buf2[:48]
+                                        bufc += buf2
+                                        bufc += rkid
+                                        bufc += hdate
+                                        bufc += "\n"
+                                        ofp.write(bufc)
+                                        bufc = ""
+                                        line_count += 1
+                                    else:
+                                        logger.error("\nFound 102 without a corresponding 101 - [7]\n")
+                                        sys.exit(7)
+
+                    except CustomException as e:
+
+                        error_msg = traceback.format_exc()
+                        logger.error(f"Error occured at participant one seq: {e}")
+                        logger.info(f"Traceback:\n{error_msg}")
+                        sys.exit(6)
+
+                    logger.info("successfully completed data transfomation")
+                except Exception as e:
+                    error_msg = traceback.format_exc()
+                    logger.info(f'error occured in sequence one in second try block :{e}')
+                    logger.info(f"Traceback:\n{error_msg}")
+                    sys.exit(5)
+
+    except FileNotFoundError as fnf:
+        error_msg = traceback.format_exc()
+        logger.error('The file does not exist :{}.'.format(fnf))
+        logger.info(f"Traceback:\n{error_msg}")
+        sys.exit(4)
+
+    except IOError:
+        error_msg = traceback.format_exc()
+        logger.error("\nUnable to open Input File {} - [2]\n".format(tmp))
+        logger.info(f"Traceback:\n{error_msg}")
+        sys.exit(3)
+    except Exception as e:
+        error_msg = traceback.format_exc()
+        logger.info(f'error occured in sequence one in second try block :{e}')
+        logger.info(f"Traceback:\n{error_msg}")
+        sys.exit(2)
+
+    # with open(filename1,'r') as output:
+    #     for out in output:
+    #         print(out)
+    generating_ack_file()
+    with open(filename1, 'r') as output:
+        bucket_name, file_key, s3 = s3_put_object()
+        # bucket_name = "dev-gwf-investments-filexfer-us-east-1"
+        # file_key = "tpifx/outgoing/"
+        file_key = file_key + 'RCINDICATIVE.DAT'  # RCINDICATIVE.DAT
+
+        file_str = output.read()
+        body = file_str
+
+        print("....bucket name..", bucket_name)
+        result = s3.put_object(Bucket=bucket_name, Key=file_key, Body=body)
+        res = result.get('ResponseMetadata')
+        if res.get('HTTPStatusCode') == 200:
+            print("file RCINDICATIVE.DAT uploaded successfully")
+        else:
+            print("file RCINDICATIVE.DAT not uploaded")
+
+
+def generating_ack_file():
+    logger.info("Generating ACK file for INDICATIVE")
+    try:
+        HeaderData = "00141INDICATIVE ACK    " + ackhdate + str(' ' * 50)
+        print("...ackCount",ackCount)
+        index = 12
+        dataOfCunt = ackCount.replace(" ", "").replace("\n", "")
+        CovertdataOfCount = int(int(dataOfCunt) / 2)
+        ackCountLength = len(dataOfCunt)
+        finalackCount = str(CovertdataOfCount).zfill(ackCountLength)
+        DetailData = "101" + str(finalackCount) + "ACCEPTED" + str(' ' * 54)
+        TrailerData = "999" + ackhdate + "  " + "000000000000001" + str(' ' * 52)
+        FinalFile = HeaderData + "\n" + DetailData + "\n" + TrailerData
+        print("Final ack data",FinalFile)
+        bucket_name, file_key, s3 = s3_put_object()
+        file_key = file_key + 'RCINDACK.DAT'  # RCINDICATIVE.DAT
+        # This will return zero if complete program flow excecutes witout conflicts
+        result = s3.put_object(Bucket=bucket_name, Key=file_key, Body=FinalFile)
+        res = result.get('ResponseMetadata')
+        if res.get('HTTPStatusCode') == 200:
+            logger.info("file RCINDIACK.DAT' uploaded successfully")
+        else:
+            logger.info("file RCINDIACK.DAT' not uploaded")
+
+    except Exception as e:
+        print("....Exception while uploading ACK file", e)
+
+# email function
+def email(given_date, table_cycle_date, files_attachment=None):
+    given_plan_date = given_date
+    to_email_list = ['Akshatha.Suresh@empower.com', 'Akshatha.Suresh@empower.com']
+
+    subject = f"The date is present in the  indicative feed is not matching with Transaction cycle table ...................indicative_feed_date:{given_plan_date},transaction cycle date:{table_cycle_date}"
+
+    print('Inside Email begin')
+    to_email = ', '.join(to_email_list)
+    logger.debug(to_email)
+    msg = MIMEMultipart()
+    msg['Subject'] = subject
+    msg['From'] = 'Akshatha.Suresh@empower.com'  # Constants.default_from_email_address
+    msg['To'] = to_email
+
+    s = smtplib.SMTP('mailhost.itssrv.com', 25)
+    s.sendmail('kshsrs@empower.com', to_email_list, msg.as_string())
+    s.quit()
+    print('Inside Email end')
+
+
+def email_empty_file(files_attachment=None):
+    given_plan_date = given_date
+    to_email_list = ['Akshatha.Suresh@empower.com', 'Akshatha.Suresh@empower.com']
+    subject = f"The Feed which found in s3 location for PPT feed is empty so cant process further....Please take a look"
+
+    print('Inside Email begin')
+    to_email = ', '.join(to_email_list)
+    logger.debug(to_email)
+    msg = MIMEMultipart()
+    msg['Subject'] = subject
+    msg['From'] = 'Akshatha.Suresh@empower.com'  # Constants.default_from_email_address
+    msg['To'] = to_email
+
+    s = smtplib.SMTP('mailhost.itssrv.com', 25)
+    s.sendmail('kshsrs@empower.com', to_email_list, msg.as_string())
+    s.quit()
+    print('Inside Email end')
+
+
+if __name__ == "__main__":
+    event = {'Records': [{
+        'body': '{"indId": "0", "gaId": null, "provCompany": null, "accuCode": "PscAfWR", "accuAccessTypeCode": null, "statusCode": "PENDING", "processCode": "CSES_SYNCH", "typeCode": "RKS", "batchNumber": "2422", "runOutput": null, "effdate": "24-Aug-2016", "runDpdateTime": "", "creationDpdateTime": "24-Aug-2016 16:07:01", "lastRunDpDateTime": "", "runEndDateTime": "", "seqnbr": "4", "evId": "0", "externalId": null, "externalSubId": "745638", "rowId": "AABsfQAADAAC4JzAAK"}'}]}
+    context = []
+    logger.info(lambda_handler(event, context))
