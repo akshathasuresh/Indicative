@@ -1,0 +1,117 @@
+import json
+import os
+import boto3
+import logging
+import pandas as pd
+from tabulate import tabulate
+import tempfile
+import sys
+import traceback
+# Settings the warnings to be ignored
+import warnings
+warnings.filterwarnings('ignore')
+from src.awslambda.Generic_function import logger,s3_put_object,s3_get_object,db2_conn_test
+from src.awslambda.Partcipant_Parameters import ERR_FILE_HEADER, ERR_FILE_SRC_ROWS, ERR_FILE_TRAILER_ROW
+global dfdb2_Header,dfdb2_SrcRec,dfdb2_Trailer
+
+
+
+#------------------------------------------------
+#DB connection variable
+Conn= db2_conn_test()
+
+#This can be used to raise custom exception
+class MyException(Exception):
+    pass
+
+
+def lambda_handler(event, context):
+    logger.info('Loading participant Sequence4 lambda function')
+    # logger.debug("Received event: " + json.dumps(event, indent=2))
+    # if 'Records' in event:
+    #     recordkeepercode = event['Records'][0]
+    #     #cycledate = event['Records'][0]
+    #
+    #     logger.info(".....recordkeeper code....")
+    #     logger.info(recordkeepercode)
+    logger.info("Entered  particpant into sequence_4")
+    with tempfile.NamedTemporaryFile(mode='w',delete=False) as  tmp1 :
+        TPODS_PPT_IND_ERR_LOG_41_FILE=tmp1.name
+    logger.info(f'Created temp file TPODS_PPT_IND_ERR_LOG_41_FILE :{TPODS_PPT_IND_ERR_LOG_41_FILE}')
+
+
+    try:
+
+
+        logger.info("Getting header src records and trailer from querying in DB and writing into file")
+        dfdb2_Header = pd.read_sql(ERR_FILE_HEADER, Conn)
+        dfdb2_SrcRec = pd.read_sql(ERR_FILE_SRC_ROWS, Conn)
+        dfdb2_Trailer = pd.read_sql(ERR_FILE_TRAILER_ROW, Conn)
+        with open(TPODS_PPT_IND_ERR_LOG_41_FILE, "w+") as f:
+            f.write(
+                tabulate(
+                    [list(row) for row in dfdb2_Header.values],
+                    tablefmt="plain"),
+            )
+            f.write('\n')
+
+            f.write(
+                tabulate(
+                    [list(row) for row in dfdb2_SrcRec.values],
+                    tablefmt="plain"
+                )
+            )
+            f.write('\n')
+            f.write(
+                tabulate(
+                    [list(row) for row in dfdb2_Trailer.values],
+                    tablefmt="plain"
+                )
+            )
+        logger.info("created Temp file with header,src rec and trailer loading into s3 bucket as output")
+        with open(TPODS_PPT_IND_ERR_LOG_41_FILE,'r') as output:
+
+            bucket_name, file_key, s3=s3_put_object()
+            file_key = file_key+"TPODS_PPT_IND_ERR_LOG_41.TXT"
+            file_str=output.read()
+            body=file_str
+        result=s3.put_object(Bucket=bucket_name,Key=file_key,Body=body)
+        res=result.get('ResponseMetadata')
+        if res.get('HTTPStatusCode') == 200:
+
+            logger.info("TPODS_PPT_IND_ERR_LOG_41 file uploaded successfully to s3 outgoing folder")
+        else:
+            logger.info("TPODS_PPT_IND_ERR_LOG_41 file not uploaded to s3 outgoing folder")
+
+
+    except Exception as e:
+        error_msg=traceback.format_exc()
+        # handle the connection exception
+        logger.error(f"An error occurred while connecting to the database in Sequence 4: {e}")
+        logger.info(f"Traceback:\n{error_msg}")
+        sys.exit(1)
+
+
+    finally:
+        print()
+        # close the connection
+        Conn.close()
+        logger.info("After the db2 process connection closed safely")
+
+    logger.info("Successfully completed particpant sequence 4")
+
+
+if __name__ == "__main__":
+    event = { 'Records': [ { 'body': '{"indId": "0", "gaId": null, "provCompany": null, "accuCode": "PscAfWR", "accuAccessTypeCode": null, "statusCode": "PENDING", "processCode": "CSES_SYNCH", "typeCode": "RKS", "batchNumber": "2422", "runOutput": null, "effdate": "24-Aug-2016", "runDpdateTime": "", "creationDpdateTime": "24-Aug-2016 16:07:01", "lastRunDpDateTime": "", "runEndDateTime": "", "seqnbr": "4", "evId": "0", "externalId": null, "externalSubId": "745638", "rowId": "AABsfQAADAAC4JzAAK"}' }]}
+    context=[]
+    logger.info("Participant four lambda process started......")
+    try:
+        lambda_handler(event, context)
+        logger.info("Participant four completed successfully")
+    except Exception as e:
+
+        error_msg = traceback.format_exc()
+        logger.error(f"error occured at participant four module :{e}")
+        logger.info(f"Traceback:\n{error_msg}")
+        sys.exit(4)
+
