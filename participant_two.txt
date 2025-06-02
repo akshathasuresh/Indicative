@@ -10,11 +10,21 @@ import traceback
 import warnings
 
 warnings.filterwarnings('ignore')
-from src.awslambda.Generic_function import db2_conn_test, logger, s3_seq_done_object
+import pandas as pd
+from src.awslambda.Partcipant_Parameters import STGTPODS_T_TP41_PART_IND_DATA_ODS_Load, COL_DTYPE, COL_SPECIFICATION, \
+    HEADERS, TPODS_IF_TRANS_CYC_SQL_UPDATE, TPODS_IF_TRANS_CYC_LOAD
+from src.awslambda.Generic_function import db2_conn_test, logger, s3_put_object, s3_get_object, s3_outgoing_get_object, \
+    s3_seq_done_object
 
-logger.info('Loading function Sequence Three participant-tpifx-lambda-seq-three-api')
+global recrdkpr_cd, DetailRecordCount, TrailerRecCount, cycle_date, re_val, RDCKPER_CD, CYC_DT, FILE_TY_CD, RCD_CNT, LAST_ACTY_OPER, LAST_ACTY_DTM
 
-# Calling db2 connection variable
+'''Constant Values for this fields in participant TPODS JOB For RECKEEPR_CD=41  \
+FILE_TY_CD = 'I'
+LAST_ACTY_OPER= 'DSPART'''
+
+
+
+# DB connection variable global declration
 Conn = db2_conn_test()
 
 
@@ -24,64 +34,197 @@ class MyException(Exception):
 
 
 def lambda_handler(event, context):
+    # START EDITING CODE FROM HERE.
+    logger.info('Loading Sequence2 lambda function')
+
     # logger.debug("Received event: " + json.dumps(event, indent=2))
     # if 'Records' in event:
     #     recordkeepercode = event['Records'][0]
+    #     # cycledate = event['Records'][0]
     #
     #     logger.info(".....recordkeeper code....")
-    logger.info("Entered into participant seq three stored proc calling function")
+    #     logger.info(recordkeepercode)
+
+    # bucket_name = "dev-gwf-investments-filexfer-us-east-1"
+    # file_key = "tpifx/outgoing/TP_PARTIND-41.TXT"
+    bucket_name, file_key_outgoing, s3 = s3_outgoing_get_object()
+    file_key = file_key_outgoing + 'RCINDICATIVE.DAT'  # 'TP-PARTIND-41.TXT'
+
+    response = s3.get_object(Bucket=bucket_name, Key=file_key)
+
+    logger.info("Entered into partcipant sequence 2 ")
+    # if response.status_code == 200:
+    existing_data = response['Body'].read().decode('utf-8')
+
+    FILE_TY_CD = 'I'
+    LAST_ACTY_OPER = 'DSPART'
+    re_val = ''
+    logger.info("Entering into second phase partcipant_squence2 ")
+    with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
+        tmp.write(existing_data)
+        filename = tmp.name
+    tmp1 = tempfile.NamedTemporaryFile(mode='w', delete=False)
+    SRC_REC_ROWS_FILE = tmp1.name
     try:
-        # Create a cursor object
-        cur = Conn.cursor()
+        # Getting Trailer count,Src_actual_rec,Header_rec
+        with open(filename, 'r') as fin:
+            for row in csv.reader(fin):
+                '''The map() function with the .join() method to convert a list to a string TO apply string functions on it'''
+                row = ' '.join(map(str, row))
 
-        # Call the stored procedure
+                """Columns need to load Into the table TPODS.IF_TRANS_CYC
+                 ---RDCKPER_CD,CYC_DT,FILE_TY_CD,RCD_CNT,LAST_ACTY_OPER,LAST_ACTY_DTM--- """
 
-        # cur.execute("{CALL TPODS.SP_TESTPARTHA()}")
-        logger.info("Executing P_LOAD_PPT_IND_DATA stored procedure ")
-        cur.execute("CALL STGTPODS.P_LOAD_PPT_IND_DATA('{}')".format(41))
+                if row.startswith("001"):
+                    row_header = row
+                    recrdkpr_cd = row_header[3:5]
+                    # RDCKPER_CD COLUMN DATA
+                    RDCKPER_CD = recrdkpr_cd
 
-        # Fetch the results if we want we can store the results as file
-        results = cur.fetchall()
-        logger.info("successfully completed stored proc call")
-        # for x in results:
-        #     print(".....result",x[0])
-        # logger.info(f"stored proc results :{results}")
+                    # CYC_DT COLUMN DATA
+                    cycle_date = row_header[25:]
+                    logger.info(f"extracted cycle date from data:{cycle_date}")
+                    year = cycle_date[0:4]
+                    month = cycle_date[4:6]
+                    dateval = cycle_date[6:]
+                    cycle_date = month + "-" + dateval.strip() + "-" + str(year)
+                    CYC_DT = cycle_date
+                    logger.info(f"recrdkpr_cd:{recrdkpr_cd} cycle_date:{cycle_date}  got it")
 
+                # Getting Trailer Rec
+                if row.startswith("999"):
+                    TrailerRec = row
+                    # 99920231106  000000000000052
+                    TrailerReccnt = TrailerRec[26:]
+                    # RCD_CNT COLUMN DATA
+                    RCD_CNT = int(TrailerReccnt) - 2
+                    FILE_TY_CD = FILE_TY_CD
+                    RCD_CNT = RCD_CNT
+
+                    logger.info(f'got trailer record count :{RCD_CNT}')
+
+            '''Code for getting Current timestamp for the column  LAST_ACTY_DTM'''
+            # current_today = datetime.date.today()
+            from datetime import datetime
+            now = datetime.now()
+            # LAST_ACTY_DTM = now.strftime("%m-%d-%Y %H:%M:%S %p")
+            LAST_ACTY_DTM = now.strftime("%Y-%m-%d %H:%M:%S ")
+            logger.info(f"now time value:{now} last_acty_dtm value:{LAST_ACTY_DTM}")
+            LAST_ACTY_DTM = LAST_ACTY_DTM
+
+        # TPODS.IF_TRANS_CYC DATA LOAD
+        # --DELETE FROM TPODS.IF_TRANS_CYC WHERE RCDKPER_CD='41' and CYC_DT= '11-06-2023' and FILE_TY_CD='I';
+
+        try:
+            logger.info(" Keeping all the required columns into list to pass as argument into excecute statement")
+            # Keeping all the required columns into list to pass as argument into excecute statement
+            list_of_values = [RDCKPER_CD, CYC_DT, FILE_TY_CD, RCD_CNT, LAST_ACTY_OPER, LAST_ACTY_DTM]
+            logger.info(f"List of values to insert into TPODS.IF_TRANS_CYC table: {list_of_values}")
+
+            # Keeping all the required columns into list to pass as argument into update statement
+
+            list_of_values_update = [RCD_CNT, LAST_ACTY_OPER, LAST_ACTY_DTM, RDCKPER_CD, CYC_DT, FILE_TY_CD]
+            logger.info(f"List of values to update into TPODS.IF_TRANS_CYC table: {list_of_values_update}")
+
+            '''GETTING DB2 CONNECTION OBJECT FROM DB_CONN_TO_DB2.PY FILE'''
+
+            cur = Conn.cursor()
+
+            sql = pd.read_sql(
+                f"select * from TPODS.IF_TRANS_CYC WHERE RCDKPER_CD='" + RDCKPER_CD + "' and CYC_DT= '" + CYC_DT + "' and FILE_TY_CD= '" + FILE_TY_CD + "'",
+                Conn)
+
+            sql_insert = TPODS_IF_TRANS_CYC_LOAD
+            sql_update = TPODS_IF_TRANS_CYC_SQL_UPDATE
+            if len(sql.values) == 0:
+                cur.execute(sql_insert, list_of_values)
+                logger.info("data inserted into TPODS.IF_TRANS_CYC table ")
+
+            elif len(sql.values) != 0:
+
+                '''it should update the row if it already exist not to raise exception exit from the code'''
+
+                logger.info("Already data exist so cant duplicate  the row  so updating the values to table ")
+                cur.execute(sql_update, list_of_values_update)
+                sql = pd.read_sql(
+                    f"select * from TPODS.IF_TRANS_CYC WHERE RCDKPER_CD='" + RDCKPER_CD + "' and CYC_DT= '" + CYC_DT + "' and FILE_TY_CD= '" + FILE_TY_CD + "'",
+                    Conn)
+                logger.info(
+                    f"Data updated  for unique key columns {RDCKPER_CD}, {CYC_DT} ,{FILE_TY_CD} ,list of values:{sql.values}")
+
+                # logger.info("Data updated  for unique key columns {}, {} ,{}".format(RDCKPER_CD, CYC_DT, FILE_TY_CD),sql.values)
+
+
+        except Exception as e:
+            error_msg = traceback.format_exc()
+            logger.error(f"error occured while excecuting the DB2 ststement:{e}")
+            logger.info(f"Traceback:\n{error_msg}")
+            sys.exit(6)
+        except TypeError as e:
+            error_msg = traceback.format_exc()
+            logger.error(f"Caught an exception : {e}")
+            logger.info(f"Traceback:\n{error_msg}")
+            sys.exit(7)
+
+        finally:
+            Conn.commit()
+            cur.close()
+
+        # IN SEQUENCE 2 STGTPODS  T_TP41_PART_IND_DATA_ODS TABLE LOAD
+        '''Calling function from below file to load the data into stgtpods table'''
+        '''BEFORE INSERTING INTO STAGING TABLE WE NEED TO TRUNCATE THE TABLE THEN ADD THE DATA'''
+        '''DELETE FROM STGTPODS.T_TP41_PART_IND_DATA_ODS WHERE STGTPODS.T_TP41_PART_IND_DATA_ODS.RCDKPER_CD = '41';'''
+        # step_2
+        from src.awslambda.fixed_width_file_load_sequence_2 import Clearing_STG_TABLE_BEFORE_LOADING, src_rec_fetch
+        re_val = Clearing_STG_TABLE_BEFORE_LOADING()
+
+        # step_3
+        '''Inserting the srource records into the table'''
+
+        re_val = src_rec_fetch(SRC_REC_ROWS_FILE, filename)
+        # print(re_val)
+
+
+    except FileNotFoundError as e:
+        logger.error(f"File does not exist not generated frm squence1: {e}")
+        sys.exit(8)
+
+    except SyntaxError as syntxerr:
+        logger.error(f"syntax error occured frm squence1: {syntxerr}")
+        sys.exit(9)
     except Exception as e:
         error_msg = traceback.format_exc()
-        logger.error(f"Error occured while calling stored proc :{e}")
+        logger.error(f"error occured frm squence1: {e}")
         logger.info(f"Traceback:\n{error_msg}")
-        sys.exit(1)
-    finally:
-        # Close the cursor and connection
-        cur.close()
-        Conn.close()
+        sys.exit(10)
 
     bucket_name, file_key, s3 = s3_seq_done_object()
-    uploadfile_key = file_key + "stored_proc.done"
+    uploadfile_key = file_key + "participant_two.done"
 
-    result = s3.put_object(Bucket=bucketname, Key=uploadfile_key, Body='')
+    result = s3.put_object(Bucket=bucket_name, Key=uploadfile_key, Body='')
     res = result.get('ResponseMetadata')
     if res.get('HTTPStatusCode') == 200:
-        logger.info("participant stored proc.done file uploaded successfully to s3 ")
+        logger.info("participant_two.done file uploaded successfully to s3 ")
     else:
-        logger.info("participant stored proc.done  file file not uploaded to s3 ")
+        logger.info("participant_two.done file file not uploaded to s3 ")
 
     logger.info("Function participant lambda executed successfully")
-    logger.info("successfully came out of stored proc of squence_3")
+
+    return re_val
 
 
 if __name__ == "__main__":
     event = {'Records': [{
-        'body': '{"recordkeepercode": "41"}'}]}
+        'body': '{"indId": "0", "gaId": null, "provCompany": null, "accuCode": "PscAfWR", "accuAccessTypeCode": null, "statusCode": "PENDING", "processCode": "CSES_SYNCH", "typeCode": "RKS", "batchNumber": "2422", "runOutput": null, "effdate": "24-Aug-2016", "runDpdateTime": "", "creationDpdateTime": "24-Aug-2016 16:07:01", "lastRunDpDateTime": "", "runEndDateTime": "", "seqnbr": "4", "evId": "0", "externalId": null, "externalSubId": "745638", "rowId": "AABsfQAADAAC4JzAAK"}'}]}
     context = []
-    logger.info("Participant three lambda process started......")
+    logger.info("lambda_handler(event, context)")
+
     try:
         lambda_handler(event, context)
-        logger.info("Participant three completed successfully")
+        logger.info("participant two lambda module completed successfully")
     except Exception as e:
-
         error_msg = traceback.format_exc()
-        logger.error(f"error occured at participant three module :{e}")
+        logger.error("error occured frm participant squence 2: {}".format(e))
         logger.info(f"Traceback:\n{error_msg}")
-        sys.exit(4)
+        sys.exit(16)
+
