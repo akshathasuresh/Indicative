@@ -1,0 +1,87 @@
+import csv
+import json
+import boto3
+import os
+import logging
+import tempfile
+import sys
+import traceback
+# Settings the warnings to be ignored
+import warnings
+
+warnings.filterwarnings('ignore')
+from src.awslambda.Generic_function import db2_conn_test, logger, s3_seq_done_object
+
+logger.info('Loading function Sequence Three participant-tpifx-lambda-seq-three-api')
+
+# Calling db2 connection variable
+Conn = db2_conn_test()
+
+
+# This can be used to raise custom exception
+class MyException(Exception):
+    pass
+
+
+def lambda_handler(event, context):
+    # logger.debug("Received event: " + json.dumps(event, indent=2))
+    # if 'Records' in event:
+    #     recordkeepercode = event['Records'][0]
+    #
+    #     logger.info(".....recordkeeper code....")
+    logger.info("Entered into participant seq three stored proc calling function")
+    try:
+        # Create a cursor object
+        cur = Conn.cursor()
+
+        # Call the stored procedure
+
+        # cur.execute("{CALL TPODS.SP_TESTPARTHA()}")
+        logger.info("Executing P_LOAD_PPT_IND_DATA stored procedure ")
+        cur.execute("CALL STGTPODS.P_LOAD_PPT_IND_DATA('{}')".format(41))
+
+        # Fetch the results if we want we can store the results as file
+        results = cur.fetchall()
+        logger.info("successfully completed stored proc call")
+        # for x in results:
+        #     print(".....result",x[0])
+        # logger.info(f"stored proc results :{results}")
+
+    except Exception as e:
+        error_msg = traceback.format_exc()
+        logger.error(f"Error occured while calling stored proc :{e}")
+        logger.info(f"Traceback:\n{error_msg}")
+        sys.exit(1)
+    finally:
+        # Close the cursor and connection
+        cur.close()
+        Conn.close()
+
+    bucket_name, file_key, s3 = s3_seq_done_object()
+    uploadfile_key = file_key + "stored_proc.done"
+
+    result = s3.put_object(Bucket=bucketname, Key=uploadfile_key, Body='')
+    res = result.get('ResponseMetadata')
+    if res.get('HTTPStatusCode') == 200:
+        logger.info("participant stored proc.done file uploaded successfully to s3 ")
+    else:
+        logger.info("participant stored proc.done  file file not uploaded to s3 ")
+
+    logger.info("Function participant lambda executed successfully")
+    logger.info("successfully came out of stored proc of squence_3")
+
+
+if __name__ == "__main__":
+    event = {'Records': [{
+        'body': '{"recordkeepercode": "41"}'}]}
+    context = []
+    logger.info("Participant three lambda process started......")
+    try:
+        lambda_handler(event, context)
+        logger.info("Participant three completed successfully")
+    except Exception as e:
+
+        error_msg = traceback.format_exc()
+        logger.error(f"error occured at participant three module :{e}")
+        logger.info(f"Traceback:\n{error_msg}")
+        sys.exit(4)
