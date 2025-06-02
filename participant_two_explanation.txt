@@ -1,0 +1,156 @@
+Certainly! Below is a detailed step-by-step explanation of each function in the participant_two.txt script.
+
+🔹 Overall Overview
+This script automates Participant Sequence 2, focusing on:
+
+Fetching participant indicative feed data from AWS S3.
+
+Extracting transaction cycle details from incoming files.
+
+Processing records and loading them into DB2.
+
+Handling errors and updating transaction logs.
+
+Uploading processed output files to AWS S3 for tracking.
+
+🔹 Step-by-Step Breakdown of Each Function
+1️⃣ lambda_handler(event, context)
+🔸 Purpose: Acts as the main function that orchestrates the entire transaction sequence.
+
+🔸 Steps Taken:
+
+Logs the start of Participant Sequence 2.
+
+Fetches indicative file (RCINDICATIVE.DAT) from AWS S3 using s3_outgoing_get_object().
+
+Reads transaction cycle details from the participant feed.
+
+Extracts header (001) details to get record keeper code (RDCKPER_CD) and cycle date (CYC_DT).
+
+Extracts footer (999) details to get the record count (RCD_CNT).
+
+Converts cycle date format from YYYYMMDD to MM-DD-YYYY.
+
+Logs extracted values for verification.
+
+Inserts or updates TPODS.IF_TRANS_CYC table in DB2 based on transaction cycle existence:
+
+If data does not exist, inserts new records.
+
+If data exists, updates transaction counts.
+
+Calls DB2 functions to load participant data into STGTPODS.T_TP41_PART_IND_DATA_ODS.
+
+Uploads completion marker (participant_two.done) to AWS S3 for tracking.
+
+2️⃣ db2_conn_test()
+🔸 Purpose: Establishes a connection to the DB2 database for participant transaction processing.
+
+🔸 Steps Taken:
+
+Uses authentication credentials to connect to DB2.
+
+Returns a DB2 connection object for executing SQL queries.
+
+3️⃣ s3_outgoing_get_object()
+🔸 Purpose: Retrieves S3 bucket details to access outgoing participant files.
+
+🔸 Steps Taken:
+
+Fetches bucket name, file key, and S3 client object.
+
+Used to read incoming participant files from S3.
+
+4️⃣ Extracting Header Details (001)
+🔸 Purpose: Extracts record keeper code (RDCKPER_CD) and transaction cycle date (CYC_DT).
+
+🔸 Steps Taken:
+
+Reads header (001) details from participant feed.
+
+Extracts record keeper code (RDCKPER_CD) from characters 3 to 5.
+
+Extracts cycle date (CYC_DT) from characters 25 onward.
+
+Converts cycle date from YYYYMMDD to MM-DD-YYYY format for DB2 storage.
+
+5️⃣ Extracting Trailer Details (999)
+🔸 Purpose: Extracts total record count (RCD_CNT) from participant feed.
+
+🔸 Steps Taken:
+
+Reads footer (999) details from participant feed.
+
+Extracts record count (RCD_CNT) from characters 26 onward.
+
+Adjusts RCD_CNT = Total Count - 2 (excluding header and footer).
+
+Logs extracted values.
+
+6️⃣ Generating LAST_ACTY_DTM Timestamp
+🔸 Purpose: Captures current timestamp for the LAST_ACTY_DTM column.
+
+🔸 Steps Taken:
+
+Uses datetime.now() to fetch the current timestamp.
+
+Formats LAST_ACTY_DTM as YYYY-MM-DD HH:MM:SS format.
+
+7️⃣ Inserting or Updating TPODS.IF_TRANS_CYC Table
+🔸 Purpose: Stores participant transaction cycle details in DB2.
+
+🔸 Steps Taken:
+
+Checks if a record already exists in TPODS.IF_TRANS_CYC.
+
+If no record exists, inserts transaction details:
+
+RDCKPER_CD, CYC_DT, FILE_TY_CD, RCD_CNT, LAST_ACTY_OPER, LAST_ACTY_DTM.
+
+If record exists, updates transaction count and last activity timestamp.
+
+Commits transaction to DB2 after processing.
+
+8️⃣ Error Handling (try-except)
+🔸 Purpose: Handles unexpected errors during transaction execution.
+
+🔸 Steps Taken:
+
+Catches DB2 execution errors.
+
+Logs traceback details for debugging.
+
+Ensures safe termination using sys.exit() with error codes.
+
+9️⃣ Clearing and Loading Participant Data (STGTPODS.T_TP41_PART_IND_DATA_ODS)
+🔸 Purpose: Loads participant transaction data into staging tables.
+
+🔸 Steps Taken:
+
+Truncates old records in STGTPODS.T_TP41_PART_IND_DATA_ODS.
+
+Loads new participant data into DB2 staging table.
+
+🔟 Uploading Completion Marker to S3 (participant_two.done)
+🔸 Purpose: Uploads completion status file to AWS S3.
+
+🔸 Steps Taken:
+
+Calls s3_seq_done_object() to get S3 bucket details.
+
+Creates marker file (participant_two.done) for completion tracking.
+
+Uploads it to S3 using s3.put_object().
+
+Logs success or failure.
+
+1️⃣1️⃣ Local Execution (if __name__ == "__main__")
+🔸 Purpose: Allows script to be executed locally for testing.
+
+🔸 Steps Taken:
+
+Defines a sample event object for validation.
+
+Calls lambda_handler(event, context).
+
+Logs sequence completion status.

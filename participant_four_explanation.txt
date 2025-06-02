@@ -1,0 +1,129 @@
+Certainly! Below is a detailed step-by-step explanation of each function in the participant_four.txt script.
+
+🔹 Overall Overview
+This script automates Participant Sequence 4, focusing on:
+
+Extracting participant error logs from DB2.
+
+Formatting and structuring data for error reporting.
+
+Generating a structured error report file and uploading it to AWS S3.
+
+Handling errors gracefully and logging execution results.
+
+Ensuring database connection closure for safe execution.
+
+🔹 Step-by-Step Breakdown of Each Function
+1️⃣ lambda_handler(event, context)
+🔸 Purpose: Serves as the main function that orchestrates error report generation and uploads output files.
+
+🔸 Steps Taken:
+
+Logs entry into participant sequence 4 process.
+
+Creates a temporary file (TPODS_PPT_IND_ERR_LOG_41_FILE) for storing extracted data from DB2.
+
+Extracts error records from DB2 using SQL queries:
+
+Fetches header rows (ERR_FILE_HEADER).
+
+Retrieves source records (ERR_FILE_SRC_ROWS).
+
+Extracts trailer rows (ERR_FILE_TRAILER_ROW).
+
+Formats error report content using the tabulate() function:
+
+Structures extracted data properly.
+
+Writes formatted rows into the temporary file.
+
+Calls s3_put_object() to upload the processed error file (TPODS_PPT_IND_ERR_LOG_41.TXT) to AWS S3.
+
+Handles errors using a try-except block, logging all exceptions.
+
+Closes DB2 connection after successful execution.
+
+2️⃣ db2_conn_test()
+🔸 Purpose: Establishes a DB2 database connection for querying participant error records.
+
+🔸 Steps Taken:
+
+Uses authentication credentials to connect to DB2.
+
+Returns a DB2 connection object (Conn) for executing queries.
+
+3️⃣ Extracting Error Records from DB2 (pd.read_sql())
+🔸 Purpose: Executes SQL queries to fetch different types of error records.
+
+🔸 Steps Taken:
+
+Queries DB2 for header error records (ERR_FILE_HEADER) using pd.read_sql().
+
+Fetches source error rows (ERR_FILE_SRC_ROWS) for validation.
+
+Extracts trailer details (ERR_FILE_TRAILER_ROW) to complete the report.
+
+4️⃣ Formatting Data (tabulate())
+🔸 Purpose: Converts DB2-extracted error data into structured text format.
+
+🔸 Steps Taken:
+
+Uses tabulate() to format header, source, and trailer rows.
+
+Converts extracted data into plain text tables.
+
+Writes formatted data into the temporary file (TPODS_PPT_IND_ERR_LOG_41_FILE).
+
+5️⃣ Uploading Error File to AWS S3 (s3_put_object())
+🔸 Purpose: Uploads the formatted error log file (TPODS_PPT_IND_ERR_LOG_41.TXT) to AWS S3.
+
+🔸 Steps Taken:
+
+Calls s3_put_object() to retrieve AWS S3 bucket details.
+
+Defines S3 file path:
+
+python
+file_key = file_key + "TPODS_PPT_IND_ERR_LOG_41.TXT"
+Reads processed error file content (Body=file_str).
+
+Uses s3.put_object() to upload structured error records to AWS S3.
+
+Validates HTTP response code (200) for successful upload.
+
+6️⃣ Error Handling (try-except)
+🔸 Purpose: Detects and logs unexpected failures during report generation.
+
+🔸 Steps Taken:
+
+Wraps DB2 execution inside try-except.
+
+If an error occurs:
+
+Logs the exception message.
+
+Captures traceback details using traceback.format_exc().
+
+Calls sys.exit(1) for safe termination.
+
+7️⃣ Closing DB2 Connection (finally block)
+🔸 Purpose: Ensures DB2 connection is closed safely after execution.
+
+🔸 Steps Taken:
+
+Calls Conn.close() to prevent connection leaks.
+
+Logs successful connection termination.
+
+8️⃣ Local Execution (if __name__ == "__main__")
+🔸 Purpose: Allows the script to be executed locally for testing.
+
+🔸 Steps Taken:
+
+Defines a sample event object for validation.
+
+Calls lambda_handler(event, context).
+
+Logs transaction sequence start and completion.
+
+Wraps execution

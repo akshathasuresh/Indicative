@@ -1,0 +1,139 @@
+🔹 Overall Overview
+This script automates the participant sequence processing, focusing on:
+
+Fetching indicative feed data from AWS S3.
+
+Validating transaction cycle dates against database records.
+
+Transforming participant data while checking for missing headers or footers.
+
+Generating acknowledgment files and uploading them to AWS S3.
+
+Handling errors and notifying stakeholders via email.
+
+🔹 Step-by-Step Breakdown of Each Function
+1️⃣ lambda_handler(event, context)
+🔸 Purpose: This is the main function that orchestrates the entire process. It:
+
+Reads indicative feed data from AWS S3.
+
+Extracts transaction cycle date from DB2.
+
+Performs validation checks on the extracted data.
+
+Transforms the participant feed to ensure proper formatting.
+
+Calls other functions to send email alerts and generate acknowledgment files.
+
+🔸 Steps Taken in lambda_handler(event, context)
+Logs entry into the process.
+
+Fetches indicative file (RCINDICATIVE.DAT) from AWS S3 via s3_get_object().
+
+Reads transaction cycle date from DB2 using a SQL query.
+
+Compares database cycle date with indicative feed date:
+
+Sends email alerts if dates do not match.
+
+Stops execution if the indicative file is empty.
+
+Performs Data Transformation:
+
+Ensures header (001) is present.
+
+Confirms footer (999) is present.
+
+Rewrites data to the output file while maintaining format integrity.
+
+Calls generating_ack_file() for acknowledgment processing.
+
+Uploads the transformed file to AWS S3 (RCINDICATIVE.DAT).
+
+2️⃣ db2_conn_test()
+🔸 Purpose: This function establishes a DB2 database connection for querying transaction cycle dates.
+
+🔸 Steps Taken:
+
+Uses authentication details to connect to DB2.
+
+Returns the database connection object (Conn) for executing SQL queries.
+
+3️⃣ s3_get_object()
+🔸 Purpose: Retrieves S3 bucket name, file key, and client object to access participant files.
+
+🔸 Steps Taken:
+
+Fetches the bucket name and key for RCINDICATIVE.DAT.
+
+Returns S3 client object to interact with AWS storage.
+
+4️⃣ email(given_date, table_cycle_date)
+🔸 Purpose: Sends an email alert when indicative feed date does not match the transaction cycle date.
+
+🔸 Steps Taken:
+
+Composes an alert message highlighting mismatched dates.
+
+Sends an email to specified recipients to notify of discrepancies.
+
+Helps teams troubleshoot errors early before processing failures occur.
+
+5️⃣ email_empty_file()
+🔸 Purpose: Sends an urgent notification when the indicative feed file found in S3 is empty.
+
+🔸 Steps Taken:
+
+Composes an email subject mentioning the empty feed file issue.
+
+Sends the alert email to relevant stakeholders.
+
+Stops further processing to prevent incorrect executions.
+
+6️⃣ Processing Indicative Feed (RCINDICATIVE.DAT)
+🔸 Purpose: Extracts and restructures participant data while performing validations.
+
+🔸 Steps Taken:
+
+Header Validation: Ensures first row starts with "001".
+
+Reads transaction cycle date from DB2.
+
+Ensures footer is present ("999") to avoid processing incomplete files.
+
+Reconstructs data for proper validation and formatting.
+
+7️⃣ generating_ack_file()
+🔸 Purpose: Generates an acknowledgment file (RCINDACK.DAT) to confirm processed records.
+
+🔸 Steps Taken:
+
+Extracts record count from indicative feed.
+
+Converts record count for acknowledgment tracking.
+
+Writes header, detail, and trailer sections to acknowledgment file.
+
+Uploads acknowledgment file to AWS S3 to confirm processing status.
+
+8️⃣ s3_put_object()
+🔸 Purpose: Uploads processed participant files (RCINDICATIVE.DAT and RCINDACK.DAT) to AWS S3 for storage.
+
+🔸 Steps Taken:
+
+Takes the final transformed data and converts it into a structured format.
+
+Uses s3.put_object() to upload processed files to AWS S3.
+
+Validates the HTTP response code to ensure a successful upload.
+
+9️⃣ if __name__ == "__main__"
+🔸 Purpose: Allows local execution of the script without AWS Lambda.
+
+🔸 Steps Taken:
+
+Defines a sample event object for testing.
+
+Calls lambda_handler(event, context) directly.
+
+Logs transaction sequence start and completion to track the process.

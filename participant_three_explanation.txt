@@ -1,0 +1,133 @@
+Certainly! Here’s a step-by-step detailed explanation of each function in the participant_three.txt script.
+
+🔹 Overall Overview
+This script automates Participant Sequence 3, focusing on:
+
+Connecting to DB2 and executing a stored procedure for participant data processing.
+
+Handling errors gracefully and logging execution results.
+
+Uploading a transaction marker file (stored_proc.done) to AWS S3 for tracking completion.
+
+Ensuring safe connection closure after execution.
+
+🔹 Step-by-Step Breakdown of Each Function
+1️⃣ lambda_handler(event, context)
+🔸 Purpose: Acts as the main function that triggers execution of a stored procedure and uploads a completion marker to AWS S3.
+
+🔸 Steps Taken:
+
+Logs entry into Sequence 3 stored procedure execution.
+
+Creates DB2 connection using db2_conn_test().
+
+Creates a cursor object for executing queries.
+
+Calls the stored procedure STGTPODS.P_LOAD_PPT_IND_DATA(41) to process participant data.
+
+Fetches execution results from DB2 (though results are not stored in a file here).
+
+Logs successful completion of the stored procedure.
+
+Handles errors using try-except:
+
+Captures DB2 execution errors.
+
+Logs traceback details.
+
+Calls sys.exit(1) for safe termination if an error occurs.
+
+Closes the cursor and DB2 connection to prevent resource leaks.
+
+Calls s3_seq_done_object() to retrieve AWS S3 bucket details.
+
+Uploads marker file (stored_proc.done) to S3 using s3.put_object().
+
+Logs whether the upload was successful.
+
+2️⃣ db2_conn_test()
+🔸 Purpose: Establishes a connection to DB2 database for transaction execution.
+
+🔸 Steps Taken:
+
+Uses authentication credentials to connect to DB2.
+
+Returns a DB2 connection object (Conn) for executing queries.
+
+3️⃣ Calling the Stored Procedure (cur.execute())
+🔸 Purpose: Executes the stored procedure STGTPODS.P_LOAD_PPT_IND_DATA for participant data processing.
+
+🔸 Steps Taken:
+
+Creates a DB2 cursor object (cur) to run SQL queries.
+
+Calls:
+
+sql
+CALL STGTPODS.P_LOAD_PPT_IND_DATA('41')
+Passing the record keeper code (41) as an argument.
+
+Fetches execution results using cur.fetchall() (though results are not stored in this case).
+
+Logs successful completion of transaction processing.
+
+4️⃣ Error Handling (try-except)
+🔸 Purpose: Handles unexpected errors during stored procedure execution.
+
+🔸 Steps Taken:
+
+Wraps DB2 execution inside try-except.
+
+If an error occurs:
+
+Logs exception message.
+
+Captures traceback details using traceback.format_exc().
+
+Calls sys.exit(1) for safe termination.
+
+5️⃣ Closing DB2 Connection (finally block)
+🔸 Purpose: Ensures DB2 connection and cursor are closed safely after execution.
+
+🔸 Steps Taken:
+
+Closes cursor (cur.close()) to free resources.
+
+Closes DB2 connection (Conn.close()) to prevent leaks.
+
+6️⃣ s3_seq_done_object()
+🔸 Purpose: Retrieves AWS S3 bucket details for uploading marker files.
+
+🔸 Steps Taken:
+
+Fetches S3 bucket name, file key, and client object.
+
+Used for storing transaction status files in S3.
+
+7️⃣ Uploading Transaction Marker (stored_proc.done)
+🔸 Purpose: Uploads completion marker file to AWS S3 for tracking sequence execution.
+
+🔸 Steps Taken:
+
+Calls s3_seq_done_object() to get S3 bucket details.
+
+Defines upload file path in S3:
+
+python
+uploadfile_key = file_key + "stored_proc.done"
+Uses s3.put_object() to store an empty marker file in S3.
+
+Checks HTTP response code for success.
+
+8️⃣ Local Execution (if __name__ == "__main__")
+🔸 Purpose: Allows the script to be executed locally for testing.
+
+🔸 Steps Taken:
+
+Defines a sample event object with recordkeepercode = 41.
+
+Calls lambda_handler(event, context).
+
+Logs transaction sequence start and completion.
+
+Wraps execution in try-except for error handling and debugging.
